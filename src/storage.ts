@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, type Settings, type Task } from './model';
 const TASKS_KEY = 'surface.tasks.v1';
 const SETTINGS_KEY = 'surface.settings.v1';
 const DELETED_KEY = 'surface.deleted.v1';
+const PRISTINE_KEY = 'surface.pristine.v1';
 const DELETED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function isoOffset(days: number): string {
@@ -52,7 +53,30 @@ export function loadTasks(): Task[] {
   }
   const tasks = seed();
   saveTasks(tasks);
+  // pristine = still the untouched sample list; sync replaces it wholesale
+  // instead of merging, so sample tasks don't duplicate across devices
+  try {
+    localStorage.setItem(PRISTINE_KEY, '1');
+  } catch {
+    /* storage unavailable */
+  }
   return tasks;
+}
+
+export function isPristine(): boolean {
+  try {
+    return localStorage.getItem(PRISTINE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function clearPristine(): void {
+  try {
+    localStorage.removeItem(PRISTINE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
 }
 
 export function saveTasks(tasks: Task[]): void {
@@ -84,6 +108,7 @@ export function saveSettings(settings: Settings): void {
 export interface DeletedEntry {
   task: Task;
   deletedAt: number; // epoch ms
+  purged?: boolean; // "delete forever" tombstone — hidden from UI, kept so sync doesn't resurrect it
 }
 
 export function loadDeleted(): DeletedEntry[] {

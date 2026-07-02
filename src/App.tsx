@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   URG,
   sortVMs,
@@ -10,6 +10,8 @@ import {
   type View,
 } from './model';
 import {
+  clearPristine,
+  isPristine,
   loadDeleted,
   loadSettings,
   loadTasks,
@@ -18,6 +20,7 @@ import {
   saveTasks,
   type DeletedEntry,
 } from './storage';
+import { syncNow, type SyncStatus } from './sync';
 import { notifyDeadlines, requestNotifyPermission } from './notify';
 import { applyAppearance } from './themes';
 import { playComplete, playKeyClick } from './sounds';
@@ -147,6 +150,11 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [now, setNow] = useState(() => Date.now());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: 'off', at: null });
+  const syncBusy = useRef(false);
+  const syncAgain = useRef(false);
+  const stateRef = useRef({ tasks, deleted, settings });
+  stateRef.current = { tasks, deleted, settings };
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30000);
@@ -202,6 +210,67 @@ export default function App() {
     saveDeleted(next);
     setDeleted(next);
   };
+
+  const runSync = useCallback(async () => {
+    const { tasks, deleted, settings } = stateRef.current;
+    if (!settings.syncEnabled || !settings.syncUrl || !settings.syncToken) {
+      setSyncStatus({ state: 'off', at: null });
+      return;
+    }
+    if (syncBusy.current) {
+      syncAgain.current = true;
+      return;
+    }
+    syncBusy.current = true;
+    setSyncStatus((s) => ({ ...s, state: 'syncing' }));
+    try {
+      const { merged, changedLocal } = await syncNow(
+        settings.syncUrl,
+        settings.syncToken,
+        { tasks, deleted },
+        isPristine(),
+      );
+      clearPristine();
+      if (changedLocal) {
+        saveTasks(merged.tasks);
+        saveDeleted(merged.deleted);
+        setTasks(merged.tasks);
+        setDeleted(merged.deleted);
+      }
+      setSyncStatus({ state: 'ok', at: Date.now() });
+    } catch (e) {
+      setSyncStatus({ state: 'error', at: null, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      syncBusy.current = false;
+      if (syncAgain.current) {
+        syncAgain.current = false;
+        void runSync();
+      }
+    }
+  }, []);
+
+  // sync on start / when sync settings change, then every 30s and on window focus
+  useEffect(() => {
+    void runSync();
+    const interval = setInterval(() => void runSync(), 30000);
+    const onFocus = () => void runSync();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [runSync, settings.syncEnabled, settings.syncUrl, settings.syncToken]);
+
+  // push local changes shortly after they happen
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const t = setTimeout(() => void runSync(), 1500);
+    return () => clearTimeout(t);
+  }, [tasks, deleted, runSync]);
 
   const soon = settings.escalationDays;
   const vms = useMemo(() => tasks.map((t) => toVM(t, now, soon)), [tasks, now, soon]);
@@ -274,7 +343,10 @@ export default function App() {
   const toggle = (id: string) => {
     const target = tasks.find((t) => t.id === id);
     if (target && !target.done && settings.completionSound) playComplete();
-    updateTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+    clearPristine();
+    updateTasks(
+      tasks.map((t) => (t.id === id ? { ...t, done: !t.done, updatedAt: Date.now() } : t)),
+    );
   };
 
   const openTask = (id: string) => {
@@ -293,11 +365,13 @@ export default function App() {
 
   const saveDraft = () => {
     if (!draft.title.trim()) return;
+    clearPristine();
     const fields = {
       title: draft.title.trim(),
       project: draft.project.trim(),
       due: draft.due || null,
       urgency: draft.urgency,
+      updatedAt: Date.now(),
     };
     if (editingId) {
       updateTasks(tasks.map((t) => (t.id === editingId ? { ...t, ...fields } : t)));
@@ -310,6 +384,7 @@ export default function App() {
   // soft delete: move to Recently Deleted (kept 30 days)
   const deleteTask = () => {
     const target = tasks.find((t) => t.id === editingId);
+    clearPristine();
     if (target) updateDeleted([{ task: target, deletedAt: Date.now() }, ...deleted]);
     updateTasks(tasks.filter((t) => t.id !== editingId));
     setEditorOpen(false);
@@ -318,12 +393,15 @@ export default function App() {
   const restoreTask = (id: string) => {
     const entry = deleted.find((e) => e.task.id === id);
     if (!entry) return;
-    updateTasks([...tasks, entry.task]);
+    clearPristine();
+    updateTasks([...tasks, { ...entry.task, updatedAt: Date.now() }]);
     updateDeleted(deleted.filter((e) => e.task.id !== id));
   };
 
+  // "delete forever": keep a hidden tombstone so sync doesn't resurrect it
   const purgeTask = (id: string) => {
-    updateDeleted(deleted.filter((e) => e.task.id !== id));
+    clearPristine();
+    updateDeleted(deleted.map((e) => (e.task.id === id ? { ...e, purged: true } : e)));
   };
 
   return (
@@ -690,6 +768,8 @@ export default function App() {
             onRestore={restoreTask}
             onPurge={purgeTask}
             onClose={() => setSettingsOpen(false)}
+            syncStatus={syncStatus}
+            onSyncNow={() => void runSync()}
           />
         )}
       </div>

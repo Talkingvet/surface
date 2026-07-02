@@ -44,6 +44,23 @@ npm run build       # static site in dist\ — host anywhere (Netlify, Vercel, e
 npm run preview     # serve the production build locally
 ```
 
+## Sync across devices
+
+`server/index.mjs` is a zero-dependency Node server that stores tasks as JSON and
+serves the built web app. Deployed on Railway (needs env vars `SYNC_TOKEN` — a long
+random secret — and `DATA_DIR=/data` with a volume mounted at `/data`).
+
+On each device: Settings → Sync → paste the server URL and access token, flip
+"Sync across devices" on. Tasks and Recently Deleted sync (newest edit wins);
+appearance settings stay per-device. The app stays offline-first — localStorage is
+the cache and syncs on launch, every 30s, on window focus, and ~1.5s after any change.
+
+Run the server locally for testing:
+
+```
+$env:SYNC_TOKEN='some-secret'; $env:PORT='8787'; node server/index.mjs
+```
+
 ## Data & settings
 
 Tasks persist locally (browser/app `localStorage`, key `surface.tasks.v1`).

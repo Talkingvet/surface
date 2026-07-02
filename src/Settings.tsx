@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { type Settings, type View } from './model';
 import { FONTS, THEMES, getTheme } from './themes';
 import { type DeletedEntry } from './storage';
+import { type SyncStatus } from './sync';
 import { fs } from './ui';
 
 function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
@@ -68,7 +69,23 @@ function deletedAgo(deletedAt: number): string {
   return `${days}d ago`;
 }
 
-type SettingsTab = 'general' | 'appearance' | 'deleted';
+type SettingsTab = 'general' | 'appearance' | 'sync' | 'deleted';
+
+function syncStatusLine(status: SyncStatus): { text: string; color: string } {
+  switch (status.state) {
+    case 'off':
+      return { text: 'Sync is off.', color: 'var(--text-faint)' };
+    case 'syncing':
+      return { text: 'Syncing…', color: 'var(--text-sec)' };
+    case 'ok':
+      return {
+        text: `Synced ${status.at ? new Date(status.at).toLocaleTimeString() : ''}`,
+        color: 'var(--text-sec)',
+      };
+    case 'error':
+      return { text: `Sync failed: ${status.message ?? 'unknown error'}`, color: 'var(--urg-0)' };
+  }
+}
 
 export default function SettingsModal({
   settings,
@@ -77,6 +94,8 @@ export default function SettingsModal({
   onRestore,
   onPurge,
   onClose,
+  syncStatus,
+  onSyncNow,
 }: {
   settings: Settings;
   onChange: (s: Settings) => void;
@@ -84,6 +103,8 @@ export default function SettingsModal({
   onRestore: (id: string) => void;
   onPurge: (id: string) => void;
   onClose: () => void;
+  syncStatus: SyncStatus;
+  onSyncNow: () => void;
 }) {
   const [tab, setTab] = useState<SettingsTab>('general');
   const set = (patch: Partial<Settings>) => onChange({ ...settings, ...patch });
@@ -115,6 +136,7 @@ export default function SettingsModal({
               [
                 { value: 'general', label: 'General' },
                 { value: 'appearance', label: 'Appearance' },
+                { value: 'sync', label: 'Sync' },
                 { value: 'deleted', label: 'Recently deleted' },
               ] as const
             ).map((t) => (
@@ -247,16 +269,67 @@ export default function SettingsModal({
           </div>
         )}
 
+        {tab === 'sync' && (
+          <div>
+            <Row name="Sync across devices" hint="Tasks and Recently Deleted follow you. Appearance stays per-device.">
+              <Switch on={settings.syncEnabled} onChange={(v) => set({ syncEnabled: v })} />
+            </Row>
+            <div style={{ padding: '13px 0', borderBottom: '1px solid var(--border-hair)' }}>
+              <div className="field-label">Server URL</div>
+              <input
+                className="field-input"
+                style={{ fontSize: fs(13.5) }}
+                value={settings.syncUrl}
+                onChange={(e) => set({ syncUrl: e.target.value.trim() })}
+                placeholder="https://your-surface-server.up.railway.app"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </div>
+            <div style={{ padding: '13px 0', borderBottom: '1px solid var(--border-hair)' }}>
+              <div className="field-label">Access token</div>
+              <input
+                type="password"
+                className="field-input"
+                style={{ fontSize: fs(13.5) }}
+                value={settings.syncToken}
+                onChange={(e) => set({ syncToken: e.target.value.trim() })}
+                placeholder="paste your sync token"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 16,
+                padding: '13px 0',
+              }}
+            >
+              <div style={{ fontSize: fs(12.5), color: syncStatusLine(syncStatus).color }}>
+                {syncStatusLine(syncStatus).text}
+              </div>
+              <button className="btn-ghost safe" onClick={onSyncNow}>
+                Sync now
+              </button>
+            </div>
+          </div>
+        )}
+
         {tab === 'deleted' && (
           <div>
             <div className="setting-hint" style={{ marginBottom: 12, marginTop: 0 }}>
               Deleted tasks stay here for 30 days, then disappear for good.
             </div>
-            {deleted.length === 0 ? (
+            {deleted.filter((e) => !e.purged).length === 0 ? (
               <div className="empty-box">Nothing here — deleted tasks appear here.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {deleted.map((e) => (
+                {deleted.filter((e) => !e.purged).map((e) => (
                   <div key={e.task.id} className="deleted-row">
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div

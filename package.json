@@ -12,6 +12,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "desktop": "npm run build && electron .",
+    "start": "node server/index.mjs",
     "dist": "npm run dist:win",
     "dist:win": "npm run build && electron-builder --win -c.electronDist=node_modules/electron/dist",
     "dist:mac": "npm run build && electron-builder --mac"

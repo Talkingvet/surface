@@ -27,10 +27,17 @@ The README covers run/build commands; this file covers intent and conventions.
 ## Architecture
 
 - React + TypeScript + Vite; Electron wrapper in `electron/main.cjs` (no IPC needed yet).
-- Persistence is localStorage only: tasks `surface.tasks.v1`, settings
+- Persistence is localStorage (offline-first cache): tasks `surface.tasks.v1`, settings
   `surface.settings.v1`, soft-deleted `surface.deleted.v1` (30-day retention).
   All storage access goes through `src/storage.ts` — keep it that way; a future phase
-  swaps in Zoho CRM task sync (OAuth) and possibly cross-device sync.
+  adds Zoho CRM task import (OAuth).
+- Cross-device sync: `server/index.mjs` (zero-dep Node, Railway project "surface",
+  URL https://surface-production-0ad4.up.railway.app, volume at /data, env SYNC_TOKEN +
+  DATA_DIR) + `src/sync.ts` (pull→merge→push; per-task `updatedAt` newest-wins;
+  deletion beats task unless task touched after `deletedAt`; `purged` tombstones stop
+  "delete forever" resurrection; "pristine" seed flag prevents sample-task duplication).
+  Sync runs on launch, every 30s, on focus, and debounced 1.5s after changes.
+  Redeploy server: `railway up --detach` from repo root.
 - Sounds are WebAudio-generated in `src/sounds.ts` (no audio assets).
 - Deadline notifications: `src/notify.ts`, max once per task per event per day.
 

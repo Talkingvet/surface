@@ -1,0 +1,4 @@
+# Railway build config: don't download the ~100MB Electron binary on the server —
+# the server only needs the Vite build + server/index.mjs.
+[variables]
+ELECTRON_SKIP_BINARY_DOWNLOAD = "1"

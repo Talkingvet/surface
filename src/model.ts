@@ -8,6 +8,7 @@ export interface Task {
   due: string | null; // ISO "YYYY-MM-DD", date-only, local timezone
   urgency: Urgency; // manual urgency: 0=Now, 1=Soon, 2=Later, 3=Someday
   done: boolean;
+  updatedAt?: number; // epoch ms of last local edit; newest wins in sync merges
 }
 
 export interface Settings {
@@ -22,6 +23,9 @@ export interface Settings {
   uiScale: number; // whole-UI zoom
   keySounds: boolean;
   completionSound: boolean;
+  syncEnabled: boolean;
+  syncUrl: string; // sync server base URL, e.g. https://surface.up.railway.app
+  syncToken: string; // shared secret for the sync server
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -36,6 +40,9 @@ export const DEFAULT_SETTINGS: Settings = {
   uiScale: 1,
   keySounds: false,
   completionSound: true,
+  syncEnabled: false,
+  syncUrl: '',
+  syncToken: '',
 };
 
 export const URG: { key: Urgency; label: string; color: string }[] = [
