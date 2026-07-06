@@ -44,21 +44,24 @@ npm run build       # static site in dist\ — host anywhere (Netlify, Vercel, e
 npm run preview     # serve the production build locally
 ```
 
-## Sync across devices
+## Accounts & sync across devices
 
-`server/index.mjs` is a zero-dependency Node server that stores tasks as JSON and
-serves the built web app. Deployed on Railway (needs env vars `SYNC_TOKEN` — a long
-random secret — and `DATA_DIR=/data` with a volume mounted at `/data`).
+`server/index.mjs` is a zero-dependency Node server with multi-user accounts. It
+stores each user's tasks as JSON on a volume and serves the built web app. Deployed
+on Railway; env vars: `SESSION_SECRET` (HMAC key for session tokens), `INVITE_CODE`
+(required to create an account), `DATA_DIR=/data` with a volume mounted at `/data`.
 
-On each device: Settings → Sync → paste the server URL and access token, flip
-"Sync across devices" on. Tasks and Recently Deleted sync (newest edit wins);
-appearance settings stay per-device. The app stays offline-first — localStorage is
-the cache and syncs on launch, every 30s, on window focus, and ~1.5s after any change.
+On each device: Settings → Account → sign in (or create an account with the invite
+code). Tasks and Recently Deleted sync per-account (newest edit wins); appearance
+settings stay per-device. The app stays offline-first — localStorage is the cache
+and syncs on launch, every 30s, on window focus, and ~1.5s after any change.
+Passwords are scrypt-hashed; sessions are signed HMAC tokens valid 180 days.
+The first account ever created adopts any legacy single-user data on the server.
 
 Run the server locally for testing:
 
 ```
-$env:SYNC_TOKEN='some-secret'; $env:PORT='8787'; node server/index.mjs
+$env:SESSION_SECRET='some-secret'; $env:INVITE_CODE='letmein'; $env:PORT='8787'; node server/index.mjs
 ```
 
 ## Data & settings

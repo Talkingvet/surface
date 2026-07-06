@@ -55,6 +55,21 @@ export function mergeData(a: SyncData, b: SyncData): SyncData {
   return { tasks: [...tasks.values()], deleted: [...deleted.values()] };
 }
 
+export const DEFAULT_SYNC_URL = 'https://surface-production-0ad4.up.railway.app';
+
+/** Explicit setting > the origin the web app is served from > the default server. */
+export function effectiveSyncUrl(explicit: string): string {
+  if (explicit) return explicit;
+  if (
+    typeof location !== 'undefined' &&
+    location.protocol.startsWith('http') &&
+    !['localhost', '127.0.0.1'].includes(location.hostname)
+  ) {
+    return location.origin;
+  }
+  return DEFAULT_SYNC_URL;
+}
+
 function apiUrl(base: string): string {
   return base.replace(/\/+$/, '') + '/api/data';
 }
@@ -76,6 +91,7 @@ async function request(base: string, token: string, init?: RequestInit): Promise
     } catch {
       /* non-JSON error body */
     }
+    if (res.status === 401) detail = 'session expired — sign in again in Settings → Account';
     throw new Error(detail);
   }
   return res;

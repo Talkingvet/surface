@@ -23,9 +23,9 @@ export interface Settings {
   uiScale: number; // whole-UI zoom
   keySounds: boolean;
   completionSound: boolean;
-  syncEnabled: boolean;
-  syncUrl: string; // sync server base URL, e.g. https://surface.up.railway.app
-  syncToken: string; // shared secret for the sync server
+  syncUrl: string; // sync server base URL; empty = default server
+  authToken: string; // session token; empty = signed out (sync off)
+  authEmail: string; // signed-in account email, for display
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -40,9 +40,9 @@ export const DEFAULT_SETTINGS: Settings = {
   uiScale: 1,
   keySounds: false,
   completionSound: true,
-  syncEnabled: false,
   syncUrl: '',
-  syncToken: '',
+  authToken: '',
+  authEmail: '',
 };
 
 export const URG: { key: Urgency; label: string; color: string }[] = [

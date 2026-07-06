@@ -20,7 +20,8 @@ import {
   saveTasks,
   type DeletedEntry,
 } from './storage';
-import { syncNow, type SyncStatus } from './sync';
+import { effectiveSyncUrl, syncNow, type SyncStatus } from './sync';
+import { login, signup } from './auth';
 import { notifyDeadlines, requestNotifyPermission } from './notify';
 import { applyAppearance } from './themes';
 import { playComplete, playKeyClick } from './sounds';
@@ -201,6 +202,34 @@ export default function App() {
     setSettings(next);
   };
 
+  const applyAuth = (token: string, email: string) => {
+    const next = { ...stateRef.current.settings, authToken: token, authEmail: email };
+    updateSettings(next);
+    stateRef.current.settings = next; // runSync reads the ref; don't wait for re-render
+  };
+
+  const signIn = async (email: string, password: string) => {
+    const r = await login(effectiveSyncUrl(stateRef.current.settings.syncUrl), email, password);
+    applyAuth(r.token, r.email);
+    void runSync();
+  };
+
+  const signUp = async (email: string, password: string, invite: string) => {
+    const r = await signup(
+      effectiveSyncUrl(stateRef.current.settings.syncUrl),
+      email,
+      password,
+      invite,
+    );
+    applyAuth(r.token, r.email);
+    void runSync();
+  };
+
+  const signOut = () => {
+    applyAuth('', '');
+    setSyncStatus({ state: 'off', at: null });
+  };
+
   const updateTasks = (next: Task[]) => {
     saveTasks(next);
     setTasks(next);
@@ -213,7 +242,7 @@ export default function App() {
 
   const runSync = useCallback(async () => {
     const { tasks, deleted, settings } = stateRef.current;
-    if (!settings.syncEnabled || !settings.syncUrl || !settings.syncToken) {
+    if (!settings.authToken) {
       setSyncStatus({ state: 'off', at: null });
       return;
     }
@@ -225,8 +254,8 @@ export default function App() {
     setSyncStatus((s) => ({ ...s, state: 'syncing' }));
     try {
       const { merged, changedLocal } = await syncNow(
-        settings.syncUrl,
-        settings.syncToken,
+        effectiveSyncUrl(settings.syncUrl),
+        settings.authToken,
         { tasks, deleted },
         isPristine(),
       );
@@ -249,7 +278,7 @@ export default function App() {
     }
   }, []);
 
-  // sync on start / when sync settings change, then every 30s and on window focus
+  // sync on start / when the session changes, then every 30s and on window focus
   useEffect(() => {
     void runSync();
     const interval = setInterval(() => void runSync(), 30000);
@@ -259,7 +288,7 @@ export default function App() {
       clearInterval(interval);
       window.removeEventListener('focus', onFocus);
     };
-  }, [runSync, settings.syncEnabled, settings.syncUrl, settings.syncToken]);
+  }, [runSync, settings.authToken, settings.syncUrl]);
 
   // push local changes shortly after they happen
   const firstRender = useRef(true);
@@ -770,6 +799,9 @@ export default function App() {
             onClose={() => setSettingsOpen(false)}
             syncStatus={syncStatus}
             onSyncNow={() => void runSync()}
+            onSignIn={signIn}
+            onSignUp={signUp}
+            onSignOut={signOut}
           />
         )}
       </div>

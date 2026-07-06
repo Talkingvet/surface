@@ -31,12 +31,17 @@ The README covers run/build commands; this file covers intent and conventions.
   `surface.settings.v1`, soft-deleted `surface.deleted.v1` (30-day retention).
   All storage access goes through `src/storage.ts` — keep it that way; a future phase
   adds Zoho CRM task import (OAuth).
-- Cross-device sync: `server/index.mjs` (zero-dep Node, Railway project "surface",
-  URL https://surface-production-0ad4.up.railway.app, volume at /data, env SYNC_TOKEN +
-  DATA_DIR) + `src/sync.ts` (pull→merge→push; per-task `updatedAt` newest-wins;
+- Accounts + cross-device sync: `server/index.mjs` (zero-dep Node, Railway project
+  "surface", URL https://surface-production-0ad4.up.railway.app, volume at /data, env
+  SESSION_SECRET + INVITE_CODE + DATA_DIR). Multi-user: scrypt password hashes in
+  users.json, per-user data-<id>.json, HMAC-signed 180-day session tokens, invite-code
+  signup, first-signup adopts legacy surface-data.json. Client: `src/auth.ts`
+  (login/signup) + `src/sync.ts` (pull→merge→push; per-task `updatedAt` newest-wins;
   deletion beats task unless task touched after `deletedAt`; `purged` tombstones stop
   "delete forever" resurrection; "pristine" seed flag prevents sample-task duplication).
-  Sync runs on launch, every 30s, on focus, and debounced 1.5s after changes.
+  Sync runs when signed in: on launch, every 30s, on focus, debounced 1.5s after changes.
+  Settings → Account tab is the auth UI. Default server URL hardcoded in `src/sync.ts`
+  (`DEFAULT_SYNC_URL`); web app served from the sync server uses its own origin.
   Redeploy server: `railway up --detach` from repo root.
 - Sounds are WebAudio-generated in `src/sounds.ts` (no audio assets).
 - Deadline notifications: `src/notify.ts`, max once per task per event per day.

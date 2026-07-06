@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DEFAULT_SYNC_URL, effectiveSyncUrl } from './sync';
 import { type Settings, type View } from './model';
 import { FONTS, THEMES, getTheme } from './themes';
 import { type DeletedEntry } from './storage';
@@ -69,12 +70,12 @@ function deletedAgo(deletedAt: number): string {
   return `${days}d ago`;
 }
 
-type SettingsTab = 'general' | 'appearance' | 'sync' | 'deleted';
+type SettingsTab = 'general' | 'appearance' | 'account' | 'deleted';
 
 function syncStatusLine(status: SyncStatus): { text: string; color: string } {
   switch (status.state) {
     case 'off':
-      return { text: 'Sync is off.', color: 'var(--text-faint)' };
+      return { text: 'Sign in to sync across devices.', color: 'var(--text-faint)' };
     case 'syncing':
       return { text: 'Syncing…', color: 'var(--text-sec)' };
     case 'ok':
@@ -96,6 +97,9 @@ export default function SettingsModal({
   onClose,
   syncStatus,
   onSyncNow,
+  onSignIn,
+  onSignUp,
+  onSignOut,
 }: {
   settings: Settings;
   onChange: (s: Settings) => void;
@@ -105,9 +109,35 @@ export default function SettingsModal({
   onClose: () => void;
   syncStatus: SyncStatus;
   onSyncNow: () => void;
+  onSignIn: (email: string, password: string) => Promise<void>;
+  onSignUp: (email: string, password: string, invite: string) => Promise<void>;
+  onSignOut: () => void;
 }) {
   const [tab, setTab] = useState<SettingsTab>('general');
   const set = (patch: Partial<Settings>) => onChange({ ...settings, ...patch });
+
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [invite, setInvite] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  const submitAuth = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      if (authMode === 'signup') await onSignUp(email, password, invite);
+      else await onSignIn(email, password);
+      setPassword('');
+      setInvite('');
+    } catch (e) {
+      setAuthError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
 
   const currentKind = getTheme(settings.theme).kind;
   const pickTheme = (id: string) => {
@@ -136,8 +166,8 @@ export default function SettingsModal({
               [
                 { value: 'general', label: 'General' },
                 { value: 'appearance', label: 'Appearance' },
-                { value: 'sync', label: 'Sync' },
-                { value: 'deleted', label: 'Recently deleted' },
+                { value: 'account', label: 'Account' },
+                { value: 'deleted', label: 'Deleted' },
               ] as const
             ).map((t) => (
               <button
@@ -269,38 +299,104 @@ export default function SettingsModal({
           </div>
         )}
 
-        {tab === 'sync' && (
+        {tab === 'account' && !settings.authToken && (
           <div>
-            <Row name="Sync across devices" hint="Tasks and Recently Deleted follow you. Appearance stays per-device.">
-              <Switch on={settings.syncEnabled} onChange={(v) => set({ syncEnabled: v })} />
-            </Row>
-            <div style={{ padding: '13px 0', borderBottom: '1px solid var(--border-hair)' }}>
-              <div className="field-label">Server URL</div>
+            <div className="setting-hint" style={{ marginTop: 0, marginBottom: 14 }}>
+              Sign in to sync your tasks across devices. Everything keeps working offline —
+              syncing happens in the background.
+            </div>
+            <div className="seg-group" style={{ display: 'inline-flex', marginBottom: 16 }}>
+              <button
+                className={`seg${authMode === 'signin' ? ' sel' : ''}`}
+                onClick={() => setAuthMode('signin')}
+              >
+                Sign in
+              </button>
+              <button
+                className={`seg${authMode === 'signup' ? ' sel' : ''}`}
+                onClick={() => setAuthMode('signup')}
+              >
+                Create account
+              </button>
+            </div>
+
+            <div className="field-label">Email</div>
+            <input
+              className="field-input"
+              style={{ marginBottom: 14 }}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            <div className="field-label">Password</div>
+            <input
+              className="field-input"
+              style={{ marginBottom: 14 }}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={authMode === 'signup' ? 'at least 8 characters' : 'your password'}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submitAuth();
+              }}
+            />
+            {authMode === 'signup' && (
+              <>
+                <div className="field-label">Invite code</div>
+                <input
+                  className="field-input"
+                  style={{ marginBottom: 14 }}
+                  value={invite}
+                  onChange={(e) => setInvite(e.target.value)}
+                  placeholder="ask Paul for the code"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void submitAuth();
+                  }}
+                />
+              </>
+            )}
+            {authError && (
+              <div style={{ fontSize: fs(12.5), color: 'var(--urg-0)', marginBottom: 12 }}>
+                {authError}
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button className="btn-save" onClick={() => void submitAuth()} disabled={authBusy}>
+                {authBusy ? '…' : authMode === 'signup' ? 'Create account' : 'Sign in'}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 18, paddingTop: 13, borderTop: '1px solid var(--border-hair)' }}>
+              <div className="field-label">Server URL (advanced)</div>
               <input
                 className="field-input"
-                style={{ fontSize: fs(13.5) }}
+                style={{ fontSize: fs(13) }}
                 value={settings.syncUrl}
                 onChange={(e) => set({ syncUrl: e.target.value.trim() })}
-                placeholder="https://your-surface-server.up.railway.app"
+                placeholder={effectiveSyncUrl('') || DEFAULT_SYNC_URL}
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
               />
+              <div className="setting-hint">Leave empty to use the default Surface server.</div>
             </div>
-            <div style={{ padding: '13px 0', borderBottom: '1px solid var(--border-hair)' }}>
-              <div className="field-label">Access token</div>
-              <input
-                type="password"
-                className="field-input"
-                style={{ fontSize: fs(13.5) }}
-                value={settings.syncToken}
-                onChange={(e) => set({ syncToken: e.target.value.trim() })}
-                placeholder="paste your sync token"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-            </div>
+          </div>
+        )}
+
+        {tab === 'account' && settings.authToken && (
+          <div>
+            <Row name="Signed in" hint={settings.authEmail}>
+              <button className="btn-ghost" onClick={onSignOut}>
+                Sign out
+              </button>
+            </Row>
             <div
               style={{
                 display: 'flex',
@@ -316,6 +412,10 @@ export default function SettingsModal({
               <button className="btn-ghost safe" onClick={onSyncNow}>
                 Sync now
               </button>
+            </div>
+            <div className="setting-hint" style={{ marginTop: 6 }}>
+              Tasks and Recently Deleted sync across your devices. Appearance stays per-device.
+              Signing out keeps your tasks on this device.
             </div>
           </div>
         )}
