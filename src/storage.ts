@@ -105,6 +105,30 @@ export function saveSettings(settings: Settings): void {
   }
 }
 
+const SUBJECTS_KEY = 'surface.subjects.v1';
+
+/** Subjects ever used on a saved task, most recently used first (editor auto-fill). */
+export function loadSubjects(): string[] {
+  try {
+    const raw = localStorage.getItem(SUBJECTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((s) => typeof s === 'string');
+    }
+  } catch {
+    /* fall through */
+  }
+  return [];
+}
+
+export function saveSubjects(subjects: string[]): void {
+  try {
+    localStorage.setItem(SUBJECTS_KEY, JSON.stringify(subjects));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export interface DeletedEntry {
   task: Task;
   deletedAt: number; // epoch ms

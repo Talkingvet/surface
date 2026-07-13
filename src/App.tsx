@@ -14,9 +14,11 @@ import {
   isPristine,
   loadDeleted,
   loadSettings,
+  loadSubjects,
   loadTasks,
   saveDeleted,
   saveSettings,
+  saveSubjects,
   saveTasks,
   type DeletedEntry,
 } from './storage';
@@ -147,6 +149,7 @@ export default function App() {
   const [deleted, setDeleted] = useState<DeletedEntry[]>(loadDeleted);
   const [view, setView] = useState<View>(settings.defaultView);
   const [subject, setSubject] = useState<string | null>(null); // lowercased project key; null = all, '' = no subject
+  const [remembered, setRemembered] = useState<string[]>(loadSubjects); // subjects ever used, newest first
   const [editorOpen, setEditorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -336,6 +339,43 @@ export default function App() {
     if (subject !== null && !subjects.has(subject)) setSubject(null);
   }, [subject, subjects]);
 
+  // editor auto-fill: remembered subjects (newest first), then any on current tasks
+  // (covers subjects that arrived via sync from another device)
+  const suggestions = (() => {
+    const seen = new Set(remembered.map((s) => s.toLowerCase()));
+    const merged = [...remembered];
+    for (const s of namedSubjects) if (!seen.has(s.key)) merged.push(s.label);
+    return merged;
+  })();
+
+  const rememberSubject = (label: string) => {
+    if (!label) return;
+    const next = [
+      label,
+      ...remembered.filter((s) => s.toLowerCase() !== label.toLowerCase()),
+    ].slice(0, 20);
+    setRemembered(next);
+    saveSubjects(next);
+  };
+
+  const forgetSubject = (label: string) => {
+    const next = remembered.filter((s) => s.toLowerCase() !== label.toLowerCase());
+    setRemembered(next);
+    saveSubjects(next);
+  };
+
+  // chips offered under the Subject field: typing narrows, exact match hides
+  const draftSubject = draft.project.trim().toLowerCase();
+  const subjectPicks = editorOpen
+    ? suggestions
+        .filter(
+          (s) =>
+            s.toLowerCase() !== draftSubject &&
+            (draftSubject === '' || s.toLowerCase().includes(draftSubject)),
+        )
+        .slice(0, 6)
+    : [];
+
   const bySubject =
     subject === null ? vms : vms.filter((t) => t.project.trim().toLowerCase() === subject);
   const visible = settings.showCompleted ? bySubject : bySubject.filter((t) => !t.done);
@@ -439,6 +479,7 @@ export default function App() {
     } else {
       updateTasks([...tasks, { id: crypto.randomUUID(), ...fields, done: false }]);
     }
+    rememberSubject(fields.project);
     setEditorOpen(false);
   };
 
@@ -786,13 +827,7 @@ export default function App() {
                     value={draft.project}
                     onChange={(e) => setDraft({ ...draft, project: e.target.value })}
                     placeholder="e.g. Work, BTI Voice"
-                    list="subject-options"
                   />
-                  <datalist id="subject-options">
-                    {namedSubjects.map((s) => (
-                      <option key={s.key} value={s.label} />
-                    ))}
-                  </datalist>
                 </div>
                 <div>
                   <div className="field-label">Deadline</div>
@@ -804,6 +839,33 @@ export default function App() {
                   />
                 </div>
               </div>
+
+              {subjectPicks.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    marginTop: -6,
+                    marginBottom: 16,
+                  }}
+                >
+                  {subjectPicks.map((s) => (
+                    <button
+                      key={s.toLowerCase()}
+                      className="subject-chip small"
+                      title="Click to use · right-click to forget"
+                      onClick={() => setDraft({ ...draft, project: s })}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        forgetSubject(s);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div className="field-label">Urgency</div>
               <div
