@@ -146,6 +146,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>(loadTasks);
   const [deleted, setDeleted] = useState<DeletedEntry[]>(loadDeleted);
   const [view, setView] = useState<View>(settings.defaultView);
+  const [subject, setSubject] = useState<string | null>(null); // lowercased project key; null = all, '' = no subject
   const [editorOpen, setEditorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -308,7 +309,36 @@ export default function App() {
     notifyDeadlines(vms);
   }, [vms]);
 
-  const visible = settings.showCompleted ? vms : vms.filter((t) => !t.done);
+  // subjects = distinct task projects, grouped case-insensitively ('' = tasks with none)
+  const subjects = useMemo(() => {
+    const map = new Map<string, { label: string; active: number }>();
+    for (const t of tasks) {
+      const label = t.project.trim();
+      const key = label.toLowerCase();
+      let entry = map.get(key);
+      if (!entry) {
+        entry = { label, active: 0 };
+        map.set(key, entry);
+      }
+      if (!t.done) entry.active++;
+    }
+    return map;
+  }, [tasks]);
+
+  const namedSubjects = [...subjects.entries()]
+    .filter(([key]) => key !== '')
+    .map(([key, v]) => ({ key, ...v }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const unfiled = subjects.get('');
+
+  // if the filtered subject's last task is deleted or renamed, fall back to All
+  useEffect(() => {
+    if (subject !== null && !subjects.has(subject)) setSubject(null);
+  }, [subject, subjects]);
+
+  const bySubject =
+    subject === null ? vms : vms.filter((t) => t.project.trim().toLowerCase() === subject);
+  const visible = settings.showCompleted ? bySubject : bySubject.filter((t) => !t.done);
   const active = visible.filter((t) => !t.done);
 
   const nowTasks = visible.filter((t) => t.eff === 0).sort(sortVMs);
@@ -388,7 +418,9 @@ export default function App() {
 
   const openComposer = () => {
     setEditingId(null);
-    setDraft(EMPTY_DRAFT);
+    // when filtered to a subject, start new tasks in that subject
+    const filtered = subject ? subjects.get(subject)?.label : '';
+    setDraft({ ...EMPTY_DRAFT, project: filtered || '' });
     setEditorOpen(true);
   };
 
@@ -495,6 +527,38 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* Subject filter */}
+        {namedSubjects.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingTop: 18 }}>
+            <button
+              className={`subject-chip${subject === null ? ' active' : ''}`}
+              onClick={() => setSubject(null)}
+            >
+              All
+              <span className="chip-count mono">{vms.filter((t) => !t.done).length}</span>
+            </button>
+            {namedSubjects.map((s) => (
+              <button
+                key={s.key}
+                className={`subject-chip${subject === s.key ? ' active' : ''}`}
+                onClick={() => setSubject(subject === s.key ? null : s.key)}
+              >
+                {s.label}
+                <span className="chip-count mono">{s.active}</span>
+              </button>
+            ))}
+            {unfiled && (
+              <button
+                className={`subject-chip${subject === '' ? ' active' : ''}`}
+                onClick={() => setSubject(subject === '' ? null : '')}
+              >
+                No subject
+                <span className="chip-count mono">{unfiled.active}</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Today */}
         {view === 'today' && (
@@ -715,14 +779,20 @@ export default function App() {
                 }}
               >
                 <div>
-                  <div className="field-label">Project</div>
+                  <div className="field-label">Subject</div>
                   <input
                     className="field-input"
                     style={{ fontSize: fs(14) }}
                     value={draft.project}
                     onChange={(e) => setDraft({ ...draft, project: e.target.value })}
-                    placeholder="e.g. Marketing"
+                    placeholder="e.g. Work, BTI Voice"
+                    list="subject-options"
                   />
+                  <datalist id="subject-options">
+                    {namedSubjects.map((s) => (
+                      <option key={s.key} value={s.label} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <div className="field-label">Deadline</div>
